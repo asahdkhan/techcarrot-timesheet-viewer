@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 
-const STATUS_OPTIONS = ["P", "L", "L/2", "WO/PH",];
+const STATUS_OPTIONS = ["P", "L", "L/2", "WO", "WO/PH", "PH", "HD", "A"];
 const LM_STATUS_OPTIONS = ["Approved", "Pending", "Rejected"];
 
 export default function App() {
@@ -122,6 +122,46 @@ export default function App() {
     }
   };
 
+  const getDayName = (dateStr, monthStr) => {
+    try {
+      const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+
+      // Extract year from any monthStr format
+      const extractYear = (ms) => {
+        if (!ms) return new Date().getFullYear();
+        // "Jan-26" or "Oct-25" → last segment after "-"
+        const dashMatch = ms.match(/-(\d{2,4})$/);
+        if (dashMatch) {
+          const y = parseInt(dashMatch[1]);
+          return y < 100 ? 2000 + y : y;
+        }
+        // "01/2025" or "10/2026"
+        const slashMatch = ms.match(/\/(\d{4})$/);
+        if (slashMatch) return parseInt(slashMatch[1]);
+        // "October 2025" or "Jan 2026"
+        const spaceMatch = ms.match(/\b(20\d{2})\b/);
+        if (spaceMatch) return parseInt(spaceMatch[1]);
+        return new Date().getFullYear();
+      };
+
+      // "DD-MMM" format (e.g. "01-Jan", "1-Oct")
+      if (/^\d{1,2}-[A-Za-z]{3}$/.test(dateStr)) {
+        const [day, mon] = dateStr.split("-");
+        const year = extractYear(monthStr);
+        const d = new Date(Date.UTC(year, MONTHS[mon.toLowerCase()], parseInt(day)));
+        return DAYS[d.getUTCDay()];
+      }
+      // "DD/MM/YYYY" format
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+        const [dd, mm, yyyy] = dateStr.split("/");
+        const d = new Date(Date.UTC(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd)));
+        return DAYS[d.getUTCDay()];
+      }
+      return "";
+    } catch { return ""; }
+  };
+
   const handleEntryChange = (index, field, value) => {
     setEntries((prev) => {
       const updated = [...prev];
@@ -134,12 +174,20 @@ export default function App() {
 
       const merged = { ...updated[index], ...changes };
 
-      // Auto-update status based on checkboxes
+      // Sync status ↔ checkboxes
       if (["present", "leave", "halfDay"].includes(field)) {
+        // Checkbox changed → update status
         if (merged.present === 1)      merged.status = "P";
         else if (merged.leave === 1)   merged.status = "L";
         else if (merged.halfDay === 1) merged.status = "L/2";
         else                           merged.status = "WO/PH";
+      } else if (field === "status") {
+        // Status dropdown changed → sync checkboxes
+        merged.present = value === "P" ? 1 : 0;
+        merged.leave   = value === "L" ? 1 : 0;
+        merged.halfDay = value === "L/2" ? 1 : 0;
+        merged.weekOff = ["WO", "WO/PH"].includes(value) ? 1 : 0;
+        merged.publicHoliday = value === "PH" ? 1 : 0;
       }
 
       updated[index] = merged;
@@ -206,6 +254,7 @@ export default function App() {
           placeholder="Employee ID (e.g. john.doe)"
           value={employeeId}
           onChange={(e) => setEmployeeId(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleUpload()}
           className="mt-4 w-full bg-gray-800 border border-gray-600 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
         />
 
@@ -248,7 +297,7 @@ export default function App() {
                 { label: "Present", color: "bg-green-500/20 text-green-400 border-green-500/30", count: entries.filter(e => e.status === "P").length },
                 { label: "Leave", color: "bg-red-500/20 text-red-400 border-red-500/30", count: entries.filter(e => e.leave === 1).length },
                 { label: "Half Day", color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30", count: entries.filter(e => e.halfDay === 1).length },
-                { label: "WO / PH", color: "bg-blue-500/20 text-blue-400 border-blue-500/30", count: entries.filter(e => e.status === "WO/PH").length },
+                { label: "WO / PH", color: "bg-blue-500/20 text-blue-400 border-blue-500/30", count: entries.filter(e => ["WO","WO/PH","PH"].includes(e.status)).length },
               ].map(({ label, color, count }) => (
                 <span key={label} className={`px-3 py-1 rounded-full border font-medium ${color}`}>
                   {label}: {count}
@@ -271,7 +320,7 @@ export default function App() {
                     <tr
                       key={i}
                       className={`border-t border-gray-700/50 transition-colors ${
-                        entry.status === "WO/PH"
+                        ["WO","WO/PH","PH"].includes(entry.status)
                           ? "bg-blue-900/20 text-gray-400"
                           : entry.leave === 1
                           ? "bg-red-900/20"
@@ -281,7 +330,10 @@ export default function App() {
                       }`}
                     >
                       {/* Date – read only */}
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-gray-300">{entry.date}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-300">
+                        <span className="font-mono">{entry.date}</span>
+                        <span className="ml-1.5 text-gray-500">{getDayName(entry.date, data.metadata?.month)}</span>
+                      </td>
 
                       {/* Project */}
                       <td className="px-3 py-2">
