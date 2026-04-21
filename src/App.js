@@ -82,37 +82,79 @@ export default function App() {
 
       setData(response);
 
-      // Filter entries to only those within the stated month
       const rawEntries = response?.entries || [];
-      const monthStr = response?.metadata?.month; // e.g. "Jan-26" or "01/2026"
-      let filteredEntries = rawEntries;
+      const monthStr = response?.metadata?.month;
+
+      // Parse month/year from any format
+      const MONTH_NAMES = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+      let targetMonth = null; // 0-indexed
+      let targetYear = null;
+
       if (monthStr) {
-        const dashFormat = /^([A-Za-z]+)-\d+$/;
-        const slashFormat = /^(\d{2})\/(\d{4})$/;
-        if (dashFormat.test(monthStr)) {
-          // "Jan-26" → match dates like "01-Jan"
-          const monthAbbr = monthStr.split("-")[0].toLowerCase();
-          filteredEntries = rawEntries.filter((e) => {
-            const parts = e.date?.split("-");
-            return parts && parts[1]?.toLowerCase() === monthAbbr;
-          });
-        } else if (slashFormat.test(monthStr)) {
-          // "01/2026" → match dates like "01/01/2026"
-          const [mm, yyyy] = monthStr.split("/");
-          filteredEntries = rawEntries.filter((e) => {
-            const parts = e.date?.split("/");
-            return parts && parts[1] === mm && parts[2] === yyyy;
-          });
+        // "Jan-26" or "Oct-25"
+        const dashFmt = monthStr.match(/^([A-Za-z]+)-(\d{2,4})$/);
+        if (dashFmt) {
+          targetMonth = MONTH_NAMES[dashFmt[1].toLowerCase().slice(0,3)];
+          const y = parseInt(dashFmt[2]);
+          targetYear = y < 100 ? 2000 + y : y;
+        }
+        // "01/2025"
+        const slashFmt = monthStr.match(/^(\d{2})\/(\d{4})$/);
+        if (slashFmt) {
+          targetMonth = parseInt(slashFmt[1]) - 1;
+          targetYear = parseInt(slashFmt[2]);
+        }
+        // "January 2025" or "JANUARY 2025"
+        const spaceFmt = monthStr.match(/([A-Za-z]+)\s+(\d{4})/);
+        if (spaceFmt) {
+          targetMonth = MONTH_NAMES[spaceFmt[1].toLowerCase().slice(0,3)];
+          targetYear = parseInt(spaceFmt[2]);
         }
       }
-      // If no entry has a project, fill with client name
-      const hasAnyProject = filteredEntries.some((e) => e.project?.trim());
-      if (!hasAnyProject) {
-        const client = response?.metadata?.client || "";
-        filteredEntries = filteredEntries.map((e) => ({ ...e, project: client }));
+
+      // Build a map of existing entries keyed by normalised date string "DD-MMM"
+      const entryMap = {};
+      rawEntries.forEach((e) => {
+        const key = e.date?.toLowerCase();
+        if (key) entryMap[key] = e;
+      });
+
+      const MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+
+      let fullEntries;
+      if (targetMonth !== null && targetYear !== null) {
+        const daysInMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+        fullEntries = Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const pad = String(day).padStart(2, "0");
+          const abbr = MONTH_ABBR[targetMonth];
+          const key = `${pad}-${abbr}`;
+          const displayDate = `${pad}-${abbr.charAt(0).toUpperCase() + abbr.slice(1)}`;
+          return entryMap[key] || {
+            date: displayDate,
+            project: "",
+            hours: 0,
+            present: 0,
+            leave: 0,
+            halfDay: 0,
+            weekOff: 0,
+            publicHoliday: 0,
+            status: "",
+            lmStatus: "Pending",
+          };
+        });
+      } else {
+        fullEntries = rawEntries;
       }
 
-      setEntries(filteredEntries);
+      // If no entry has a project, fill with client name
+      const hasAnyProject = fullEntries.some((e) => e.project?.trim());
+      if (!hasAnyProject) {
+        const client = response?.metadata?.client || "";
+        fullEntries = fullEntries.map((e) => ({ ...e, project: client }));
+      }
+
+      setEntries(fullEntries);
     } catch (err) {
       console.error(err);
       setData(null);
