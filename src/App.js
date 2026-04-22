@@ -112,11 +112,20 @@ export default function App() {
         }
       }
 
-      // Build a map of existing entries keyed by normalised date string "DD-MMM"
+      // Build a map of existing entries keyed by day number
       const entryMap = {};
       rawEntries.forEach((e) => {
-        const key = e.date?.toLowerCase();
-        if (key) entryMap[key] = e;
+        if (!e.date) return;
+        // "DD-MMM" → key by day number e.g. "01"
+        if (/^\d{1,2}-[A-Za-z]{3}$/.test(e.date)) {
+          const day = String(parseInt(e.date.split("-")[0])).padStart(2, "0");
+          entryMap[day] = e;
+        }
+        // "DD/MM/YYYY" → key by day number e.g. "01"
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(e.date)) {
+          const day = e.date.split("/")[0];
+          entryMap[day] = e;
+        }
       });
 
       const MONTH_ABBR = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
@@ -124,13 +133,23 @@ export default function App() {
       let fullEntries;
       if (targetMonth !== null && targetYear !== null) {
         const daysInMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+        // Detect which date format the response uses
+        const sampleDate = rawEntries[0]?.date || "";
+        const usesSlashFormat = /^\d{2}\/\d{2}\/\d{4}$/.test(sampleDate);
+        const abbr = MONTH_ABBR[targetMonth];
+        const abbrCap = abbr.charAt(0).toUpperCase() + abbr.slice(1);
+        const mmPad = String(targetMonth + 1).padStart(2, "0");
+        const yyyy = String(targetYear);
+
         fullEntries = Array.from({ length: daysInMonth }, (_, i) => {
           const day = i + 1;
           const pad = String(day).padStart(2, "0");
-          const abbr = MONTH_ABBR[targetMonth];
-          const key = `${pad}-${abbr}`;
-          const displayDate = `${pad}-${abbr.charAt(0).toUpperCase() + abbr.slice(1)}`;
-          return entryMap[key] || {
+          const existing = entryMap[pad];
+          if (existing) return existing;
+          const displayDate = usesSlashFormat
+            ? `${pad}/${mmPad}/${yyyy}`
+            : `${pad}-${abbrCap}`;
+          return {
             date: displayDate,
             project: "",
             hours: 0,
